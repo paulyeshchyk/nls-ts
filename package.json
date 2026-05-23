@@ -1,0 +1,49 @@
+{
+  "name": "nls-ts",
+  "displayName": "NLS Typescript",
+  "description": "Extract selected text into nls key-value files",
+  "publisher": "paulyestchick",
+  "version": "0.1.0",
+  "license":"MIT",
+  "repository": {
+    "url": "https://github.com/paulyeshchyk/nls-ts"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onLanguage:javascript", "onLanguage:typescript", "onLanguage:markdown"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "nls-refactor.createKeyValueString",
+        "title": "Create Key-Value (string)",
+        "category": "NLS"
+      },
+      {
+        "command": "nls-refactor.createKeyValueTypedef",
+        "title": "Create Key-Value (typedef)",
+        "category": "NLS"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "minimist": "^1.2.8",
+    "mkdirp": "^3.0.1"
+  }
+}
