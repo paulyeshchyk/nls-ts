@@ -1,79 +1,101 @@
+
 # nls-ts
 
-**Tool for working with localization in VS Code extensions**
+**Tool for automating localization in VS Code extensions**
 
-This extension helps you quickly extract strings for NLS (Natural Language Support) with automatic key creation and support for the modern `vscode.l10n` API.
+This extension helps you quickly extract strings for NLS (Natural Language Support) with automatic abstract key creation and seamless deployment of a self-contained localization infrastructure right into your project.
 
 ## Features
 
-- Two modes for string extraction:
-  - **(string)** — simple string using `vscode.l10n.t('key')`
-  - **(typedef)** — typed structure via `nls.js` + `vscode.l10n.t(nls.key.subkey)`
-- Automatic creation and updating of `package.nls.json`
-- Automatic generation of `nls.js` with nested object structure based on dot notation
-- Support for placeholders `${variable}` — automatically converted to `vscode.l10n.t(key, arg1, arg2)`
-- Automatic addition of `require` statement for `nls.js`
+- **Two modes for string extraction:**
+- **(string)** - simple flat string key: `translate('key')`
+- **(typedef)** - strictly typed structure with property autocompletion: `translate(nls_ts.key.subkey)`
+- **Automated infrastructure deployment:** upon first run, the extension automatically deploys a lightweight `nls_loader.js` runtime helper to your project.
+- **Smart translation updates:** automatic creation and population of `package.nls.json` with new keys.
+- **Key-tree generation:** automatic assembly of `nls_ts.js` with a nested object structure based on dot notation.
+- **Placeholder support:** strings like `${variable}` are automatically converted into template arguments: `translate(key, variable)`.
+- **Clean code footprint:** automatically inserts just a single `require` statement to import both the key tree and the translation function.
 
 ## How to Use
 
-1. Select the text you want to localize
-2. Press `Ctrl + .` (Quick Fix)
+1. Select the text you want to localize.
+2. Press `Ctrl + .` (`Cmd + .` on macOS) to open the Quick Fix menu.
 3. Choose one of the options:
    - **NLS: Create Key-Value (string)**
    - **NLS: Create Key-Value (typedef)**
 
-### Example (typedef mode)
+### Mandatory Step: Initialization
 
-Select the text:  
-"Welcome, ${userName}!"
-
-Enter the key: `greeting.welcome`
-
-Result:  
+On its first run, the extension will generate an `nls_loader.js` file in your workspace root. To make the localization work at runtime, you must initialize it once inside the main file of your extension (usually `extension.js`):
 
 ```js
-const { nls } = require('./nls.js');
+const { initNls } = require('./nls_loader');
 
-vscode.l10n.t(nls.greeting.welcome, userName)
+function activate(context) {
+// Initialize localization before registering any commands
+initNls(context);
+// Rest of your activation code...
+}
 ```
 
-And in `nls.js` you will get:
+## Example (typedef mode)
+
+Selected text:
 
 ```js
-const nls = {
-  greeting: {
-    welcome: "greeting.welcome"
-  }
+"Welcome, ${userName}!"
+```
+
+Entered key: `greeting.welcome`
+
+Result in your source file:
+
+```js
+const { nls_ts, translate } = require('../../nls_ts.js');
+
+translate(nls_ts.greeting.welcome, userName)
+```
+
+Inside the auto-generated `nls_ts.js`:
+
+```js
+const { translate } = require('./nls_loader');
+
+const nls_ts = {
+greeting: {
+welcome: "greeting.welcome"
+}
 };
 
-module.exports = { nls };
+module.exports = { nls_ts, translate };
 ```
 
 ## Created Files
 
-- `package.nls.json` — main translation file
-- `nls.js` — typed structure (created only when using **(typedef)** mode)
+`nls_loader.js` - isolated runtime helper. Created once, handles loading the appropriate JSON translation file based on the current VS Code display language.
+`package.nls.json` - the primary flat translation registry.
+`nls_ts.js` - object key tree (created and updated only when using (typedef) mode).
 
 ## Installation
 
-Install the extension from the VS Code Marketplace
+Install the extension from the VS Code Marketplace.
+Or clone the repository and run:
 
-Or clone the repository and run:  
-`npm install && npm run compile`
+```bash
+npm install && npm run compile
+```
 
 ## Commands
 
-- `nls-refactor.createKeyValueString` — create string key
-- `nls-refactor.createKeyValueTypedef` — create key with typedef structure
+`nls_ts.createKeyValueString` - extract string as a flat text key.
+`nls_ts.createKeyValueTypedef` - extract string and regenerate the object property tree.
 
 ## Recommendations
 
-Use **(typedef)** mode for large projects — it provides better navigation and autocompletion.  
-Do not edit `nls.js` manually — it is automatically regenerated when new keys are added.
+Use (`typedef`) mode for medium to large projects - it grants effortless key navigation via `Ctrl + Click` and full IntelliSense autocompletion, eliminating typos.
+
+Avoid editing `nls_loader.js` and `nls_ts.js` manually - they are managed and automatically regenerated by the extension.
 
 ## License
 
 MIT
-
-**Author**: paul.yestchick  
-**Version**: 0.1.0

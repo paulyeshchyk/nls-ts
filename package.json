@@ -3,8 +3,8 @@
   "displayName": "NLS Typescript",
   "description": "Extract selected text into nls key-value files",
   "publisher": "paulyestchick",
-  "version": "0.1.0",
-  "license":"MIT",
+  "version": "0.1.2",
+  "license": "MIT",
   "repository": {
     "url": "https://github.com/paulyeshchyk/nls-ts"
   },
@@ -15,20 +15,22 @@
     "Other"
   ],
   "activationEvents": [
-    "onLanguage:javascript", "onLanguage:typescript", "onLanguage:markdown"
+    "onLanguage:javascript",
+    "onLanguage:typescript",
+    "onLanguage:markdown"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "nls-refactor.createKeyValueString",
-        "title": "Create Key-Value (string)",
-        "category": "NLS"
+        "command": "nls_ts.createKeyValueString",
+        "title": "NLS_TS: Create Key-Value (string)",
+        "category": "NLS_TS"
       },
       {
-        "command": "nls-refactor.createKeyValueTypedef",
-        "title": "Create Key-Value (typedef)",
-        "category": "NLS"
+        "command": "nls_ts.createKeyValueTypedef",
+        "title": "NLS_TS: Create Key-Value (typedef)",
+        "category": "NLS_TS"
       }
     ]
   },

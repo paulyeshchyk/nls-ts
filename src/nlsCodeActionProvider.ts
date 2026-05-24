@@ -2,59 +2,411 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 
+/** Константы */
+export const NLS_OBJECT_NAME = 'nls_ts';
+export const NLS_JS_NAME = 'nls_ts.js';
+
+export const NLS_LOADER_TEMPLATE = `// Auto-generated runtime helper for NLS localization
+const fs = require('fs');
+const path = require('path');
+const vscode = require('vscode');
+
+/** * Кэш текущих переводов (плоский словарь)
+ * @type {Record<string, string>} 
+ */
+let currentTranslations = {};
+
+/**
+ * Инициализация локализации. Вызывается один раз в методе activate().
+ * @param {vscode.ExtensionContext} context 
+ */
+function initNls(context) {
+    const locale = vscode.env.language; 
+    const rootPath = context.extensionPath;
+    let nlsPath = path.join(rootPath, \`package.nls.\${locale}.json\`);
+    
+    if (!fs.existsSync(nlsPath)) {
+        nlsPath = path.join(rootPath, 'package.nls.json');
+    }
+    
+    try {
+        if (fs.existsSync(nlsPath)) {
+            currentTranslations = JSON.parse(fs.readFileSync(nlsPath, 'utf8'));
+        }
+    } catch (err) {
+        console.error('Failed to load NLS file:', err);
+    }
+}
+
+/**
+ * Функция перевода по ключу.
+ * @param {string} key - Путь к ключу локализации.
+ * @param {...(string | number | boolean)} args - Аргументы для шаблона {0}, {1}...
+ * @returns {string}
+ */
+function translate(key, ...args) {
+    /** @type {string} */
+    let template = currentTranslations[key] || key;
+    
+    if (args.length > 0) {
+        // Явно типизируем callback для replace
+        template = template.replace(/{\\d+}/g, 
+            /**
+             * @param {string} match - Совпавшая подстрока (например, "{0}")
+             * @param {string} number - Порядковый номер аргумента из группы захвата ("0")
+             * @returns {string}
+             */
+            (match, number) => {
+                const index = parseInt(number, 10);
+                return typeof args[index] !== 'undefined' ? String(args[index]) : match;
+            }
+        );
+    }
+    return template;
+}
+
+module.exports = { initNls, translate };
+`;
+// ====================== ИНТЕРФЕЙСЫ ======================
+
+export interface IHost {
+    // Window / UI
+    showInputBox(options: vscode.InputBoxOptions): Thenable<string | undefined>;
+    showInformationMessage(message: string): Thenable<string | undefined>;
+    showWarningMessage(message: string): Thenable<string | undefined>;
+    showErrorMessage(message: string): Thenable<string | undefined>;
+}
+
+export interface IDocumentManager {
+    // Workspace
+    getRootPath(): string | undefined;
+
+    getActiveTextEditor(): vscode.TextEditor | undefined;
+    getDocumentText(document: vscode.TextDocument): string;
+    getDocumentUri(document: vscode.TextDocument): vscode.Uri;
+    insertText(document: vscode.TextDocument, position: vscode.Position, content: string): Promise<boolean>;
+}
+
 export interface INlsReplacer {
     buildReplacement(useTypedef: boolean, key: string, args: string[]): string;
 }
 
-/**
- * Реплейсер на основе vscode.l10n.t (современный API)
- */
+export interface INlsFinder {
+    findNlsFiles(rootPath: string): Promise<string[]>;
+}
+
+export interface INlsBuilder {
+    createDefaultNlsFile(rootPath: string): Promise<string>;
+    addKeyToNlsFile(filePath: string, key: string, value: string): Promise<void>;
+    rebuildNlsJs(rootPath: string): Promise<void>;
+    ensureNlsLoader(rootPath: string): Promise<void>;
+}
+
+export interface IJsPatcher {
+    ensureNlsImport(text: string, currentDir: string, rootPath: string): Promise<{ position: vscode.Position; content: string } | null>;
+}
+
+// ====================== РЕАЛИЗАЦИИ ======================
+
+export class VsDocumentManager implements IDocumentManager {
+    getRootPath(): string | undefined {
+        return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    }
+
+    getActiveTextEditor(): vscode.TextEditor | undefined {
+        return vscode.window.activeTextEditor;
+    }
+
+    getDocumentText(document: vscode.TextDocument): string {
+        return document.getText();
+    }
+
+    getDocumentUri(document: vscode.TextDocument): vscode.Uri {
+        return document.uri;
+    }
+
+    async insertText(
+        document: vscode.TextDocument,
+        position: vscode.Position,
+        content: string
+    ): Promise<boolean> {
+
+        const edit = new vscode.WorkspaceEdit();
+        edit.insert(document.uri, position, content);
+        await vscode.workspace.applyEdit(edit);
+
+        return true;
+    }
+}
+
+export class VsCodeHost implements IHost {
+
+    showInputBox(options: vscode.InputBoxOptions): Thenable<string | undefined> {
+        return vscode.window.showInputBox(options);
+    }
+
+    showInformationMessage(message: string): Thenable<string | undefined> {
+        return vscode.window.showInformationMessage(message);
+    }
+
+    showWarningMessage(message: string): Thenable<string | undefined> {
+        return vscode.window.showWarningMessage(message);
+    }
+
+    showErrorMessage(message: string): Thenable<string | undefined> {
+        return vscode.window.showErrorMessage(message);
+    }
+}
+
+export class NlsFinder implements INlsFinder {
+    async findNlsFiles(rootPath: string): Promise<string[]> {
+        const entries = await fs.readdir(rootPath, { withFileTypes: true });
+        return entries
+            .filter(e => e.isFile() && e.name.startsWith('package.nls') && e.name.endsWith('.json'))
+            .map(e => path.join(rootPath, e.name));
+    }
+}
+
+export class NlsBuilder implements INlsBuilder {
+
+    async createDefaultNlsFile(rootPath: string): Promise<string> {
+        const defaultPath = path.join(rootPath, 'package.nls.json');
+        await fs.writeFile(defaultPath, JSON.stringify({}, null, 2), 'utf-8');
+        return defaultPath;
+    }
+
+    async addKeyToNlsFile(filePath: string, key: string, value: string): Promise<void> {
+        let content = '{}';
+        try { content = await fs.readFile(filePath, 'utf-8'); } catch { }
+
+        const json = JSON.parse(content) as Record<string, string>;
+        json[key] = value;
+
+        await fs.writeFile(filePath, JSON.stringify(json, null, 2), 'utf-8');
+    }
+
+    private setNestedValue(obj: any, parts: string[], value: string): void {
+        let current = obj;
+        for (let i = 0; i < parts.length - 1; i++) {
+            const part = parts[i];
+            current[part] = current[part] || {};
+            current = current[part];
+        }
+        current[parts[parts.length - 1]] = value;
+    }
+
+    async rebuildNlsJs(rootPath: string): Promise<void> {
+        const packageNlsPath = path.join(rootPath, 'package.nls.json');
+        let allKeys: Record<string, string> = {};
+        try {
+            allKeys = JSON.parse(await fs.readFile(packageNlsPath, 'utf-8'));
+        } catch {
+            await this.createDefaultNlsFile(rootPath);
+            allKeys = {};
+        }
+
+        const nlsObject: any = {};
+        for (const key of Object.keys(allKeys)) {
+            // Важно: значением ключа в объекте теперь должен быть сам плоский ключ (строка)
+            this.setNestedValue(nlsObject, key.split('.'), key);
+        }
+
+        let jsonStr = JSON.stringify(nlsObject, null, 2);
+        // Убираем кавычки у валидных идентификаторов свойств
+        jsonStr = jsonStr.replace(/"([a-zA-Z_$][a-zA-Z0-9_$]*)":/g, '$1:');
+
+        // Модифицированный шаблон содержимого файла nls_ts.js
+        const jsContent =
+            `// Auto-generated by NLS Refactor. Do not edit manually.\n` +
+            `const { translate } = require('./nls_loader');\n\n` + 
+            `const ${NLS_OBJECT_NAME} = ${jsonStr};\n\n` +
+            `module.exports = { ${NLS_OBJECT_NAME}, translate };`; 
+
+        await fs.writeFile(path.join(rootPath, NLS_JS_NAME), jsContent, 'utf-8');
+    }
+
+    async ensureNlsLoader(rootPath: string): Promise<void> {
+        const loaderPath = path.join(rootPath, 'nls_loader.js');
+
+        try {
+            // Проверяем, существует ли файл. Если существует, метод выполнится успешно.
+            await fs.access(loaderPath);
+        } catch {
+            // Если файла нет, fs.access бросит исключение, и мы создаем файл из константы
+            await fs.writeFile(loaderPath, NLS_LOADER_TEMPLATE, 'utf-8');
+        }
+    }
+}
+
+export class JsPatcher implements IJsPatcher {
+    constructor(private readonly host: IHost) { }
+
+    async ensureNlsImport(
+        text: string,
+        currentDir: string,
+        rootPath: string
+    ): Promise<{ position: vscode.Position; content: string } | null> {
+
+        // Регулярное выражение теперь ищет импорт, содержащий и nls_ts, и translate
+        const regex = new RegExp(`const\\s*\\{\\s*${NLS_OBJECT_NAME},\\s*translate\\s*\\}\\s*=\\s*require\\(`);
+        if (regex.test(text)) {
+            return null;
+        }
+
+        let relativePath = path.relative(currentDir, path.join(rootPath, NLS_JS_NAME));
+        relativePath = relativePath.replace(/\\/g, '/');
+        if (!relativePath.startsWith('.')) relativePath = './' + relativePath;
+
+        // Формируем чистую строку импорта двух сущностей из одного файла
+        const requireStatement = `const { ${NLS_OBJECT_NAME}, translate } = require('${relativePath}');\n`;
+        const insertLine = text.startsWith('#!') ? 1 : 0;
+
+        return {
+            position: new vscode.Position(insertLine, 0),
+            content: requireStatement
+        };
+    }
+}
+
+export class CustomNlsReplacer implements INlsReplacer {
+    buildReplacement(useTypedef: boolean, key: string, args: string[]): string {
+        // Заменяем вызов на локальный метод translate()
+        if (useTypedef) {
+            return args.length === 0
+                ? `translate(${NLS_OBJECT_NAME}.${key})`
+                : `translate(${NLS_OBJECT_NAME}.${key}, ${args.join(', ')})`;
+        }
+        return args.length === 0
+            ? `translate('${key}')`
+            : `translate('${key}', ${args.join(', ')})`;
+    }
+}
+
 export class VscodeL10nReplacer implements INlsReplacer {
     buildReplacement(useTypedef: boolean, key: string, args: string[]): string {
         if (useTypedef) {
-            if (args.length === 0) {
-                return `vscode.l10n.t(nls.${key})`;
-            } else {
-                return `vscode.l10n.t(nls.${key}, ${args.join(', ')})`;
-            }
-        } else {
-            if (args.length === 0) {
-                return `vscode.l10n.t('${key}')`;
-            } else {
-                return `vscode.l10n.t('${key}', ${args.join(', ')})`;
-            }
+            return args.length === 0
+                ? `vscode.l10n.t(${NLS_OBJECT_NAME}.${key})`
+                : `vscode.l10n.t(${NLS_OBJECT_NAME}.${key}, ${args.join(', ')})`;
         }
+        return args.length === 0
+            ? `vscode.l10n.t('${key}')`
+            : `vscode.l10n.t('${key}', ${args.join(', ')})`;
     }
 }
 
-/**
- * Реплейсер на основе устаревшего vscode-nls (localize)
- */
-export class VscodeNlsReplacer implements INlsReplacer {
-    buildReplacement(useTypedef: boolean, key: string, args: string[]): string {
-        // В vscode-nls localize всегда требует fallback строку (второй аргумент)
-        // и аргументы для подстановки.
-        if (useTypedef) {
-            // В typedef-режиме предполагаем, что nls.${key} содержит строку-ключ.
-            // Но localize ожидает первым аргументом ключ, вторым – fallback.
-            // fallback можно сделать пустым или динамическим.
-            if (args.length === 0) {
-                return `localize(nls.${key}, '')`;
-            } else {
-                return `localize(nls.${key}, '', ${args.join(', ')})`;
+// ====================== СЕРВИС ======================
+
+export class NlsService {
+    constructor(
+        private readonly host: IHost,
+        private readonly documentManager: IDocumentManager,
+        private readonly nlsBuilder: INlsBuilder,
+        private readonly nlsFinder: INlsFinder,
+        private readonly jsPatcher: IJsPatcher,
+        private readonly replacer: INlsReplacer
+    ) { }
+
+    async createKeyValue(
+        document: vscode.TextDocument,
+        range: vscode.Range,
+        selectedText: string,
+        useTypedef: boolean
+    ) {
+        try {
+
+            const rootPath = this.documentManager.getRootPath();
+            if (!rootPath) throw new Error('No workspace folder found');
+
+
+            // --- ПРОВЕРКА И ПРЕДУПРЕЖДЕНИЕ ---
+            const loaderPath = path.join(rootPath, 'nls_loader.js');
+            let isFirstRun = false;
+
+            try {
+                await fs.access(loaderPath);
+            } catch {
+                isFirstRun = true;
             }
-        } else {
-            if (args.length === 0) {
-                return `localize('${key}', '')`;
-            } else {
-                return `localize('${key}', '', ${args.join(', ')})`;
+
+            if (isFirstRun) {
+                // Предупреждаем пользователя и спрашиваем разрешение
+                const choice = await vscode.window.showInformationMessage(
+                    'This is the first time you run NLS Refactor in this project. ' +
+                    'We need to add setup files (nls_loader.js & nls_ts.js) to your workspace. Proceed?',
+                    'Yes', 'Cancel'
+                );
+
+                if (choice !== 'Yes') {
+                    return; // Пользователь отказался, отменяем рефакторинг
+                }
+
+                // Создаем nls_loader.js, если пользователь согласился
+                await this.nlsBuilder.ensureNlsLoader(rootPath);
             }
+
+            const key = await this.host.showInputBox({
+                prompt: useTypedef ? 'Enter NLS key (e.g. "lorem.ipsum.dolor")' : 'Enter NLS key',
+                placeHolder: 'section.title',
+                validateInput: (v) => !v?.trim() ? 'Key cannot be empty' : null
+            });
+
+            if (!key) return;
+
+            let nlsFiles = await this.nlsFinder.findNlsFiles(rootPath);
+            if (nlsFiles.length === 0) {
+                const newFile = await this.nlsBuilder.createDefaultNlsFile(rootPath);
+                nlsFiles = [newFile];
+            }
+
+            const { pattern, args } = this.extractTemplate(selectedText);
+            for (const file of nlsFiles) {
+                await this.nlsBuilder.addKeyToNlsFile(file, key, pattern);
+            }
+
+            const replacementText = this.replacer.buildReplacement(useTypedef, key, args);
+
+            const editor = this.documentManager.getActiveTextEditor();
+            if (editor?.document === document) {
+                await editor.edit(eb => eb.replace(range, replacementText), { undoStopBefore: true, undoStopAfter: true });
+            } else {
+                this.host.showWarningMessage('Editor focus changed. Please replace manually.');
+            }
+
+            if (useTypedef) {
+                await this.nlsBuilder.rebuildNlsJs(rootPath);
+                const text = this.documentManager.getDocumentText(document);
+                const currentDir = path.dirname(document.uri.fsPath);
+                let result = await this.jsPatcher.ensureNlsImport(text, currentDir, rootPath);
+                if (result !== null) {
+                    const inserted = this.documentManager.insertText(document, result.position, result.content);
+                    if (!inserted) {
+                        this.host.showWarningMessage('Could not add nls import. Please add manually.');
+                    }
+                }
+            }
+
+            this.host.showInformationMessage(`NLS key "${key}" added ${useTypedef ? '(typedef)' : '(string)'}`);
+        } catch (err: any) {
+            this.host.showErrorMessage(`Error: ${err.message}`);
         }
     }
+
+    private extractTemplate(template: string): { pattern: string; args: string[] } {
+        const regex = /\${([^}]+)}/g;
+        const args: string[] = [];
+        let index = 0;
+        const pattern = template.replace(regex, (_, expr) => {
+            args.push(expr.trim());
+            return `{${index++}}`;
+        });
+        return { pattern, args };
+    }
 }
+
+// ====================== CODE ACTION PROVIDER ======================
 
 export class NlsCodeActionProvider implements vscode.CodeActionProvider {
-
     public static readonly providedCodeActionKinds = [vscode.CodeActionKind.Refactor];
 
     public provideCodeActions(
@@ -64,6 +416,9 @@ export class NlsCodeActionProvider implements vscode.CodeActionProvider {
         token: vscode.CancellationToken
     ): vscode.ProviderResult<vscode.CodeAction[]> {
 
+        if (token.isCancellationRequested) {
+            return undefined;
+        }
 
         const selectedText = document.getText(range).trim();
         if (!selectedText) return undefined;
@@ -74,15 +429,15 @@ export class NlsCodeActionProvider implements vscode.CodeActionProvider {
 
         const stringAction = new vscode.CodeAction('NLS: Create Key-Value (string)', vscode.CodeActionKind.Refactor);
         stringAction.command = {
-            title: 'nls-refactor.createKeyValueString',
-            command: 'nls-refactor.createKeyValueString',
+            command: 'nls_ts.createKeyValueString',
+            title: 'NLS: Create Key-Value (string)',
             arguments: [document, range, selectedText]
         };
 
         const typedefAction = new vscode.CodeAction('NLS: Create Key-Value (typedef)', vscode.CodeActionKind.Refactor);
         typedefAction.command = {
-            title: 'nls-refactor.createKeyValueTypedef',
-            command: 'nls-refactor.createKeyValueTypedef',
+            command: 'nls_ts.createKeyValueTypedef',
+            title: 'NLS: Create Key-Value (typedef)',
             arguments: [document, range, selectedText]
         };
 
@@ -90,196 +445,27 @@ export class NlsCodeActionProvider implements vscode.CodeActionProvider {
     }
 }
 
-// ====================== ОСНОВНЫЕ ФУНКЦИИ ======================
+// ====================== ИНИЦИАЛИЗАЦИЯ ======================
 
-const replacer: INlsReplacer = new VscodeNlsReplacer();
+const host = new VsCodeHost();
 
+const nlsService = new NlsService(
+    host,
+    new VsDocumentManager(),
+    new NlsBuilder(),
+    new NlsFinder(),
+    new JsPatcher(host),
+    new CustomNlsReplacer()
+);
 
-export async function createKeyValueString(
+export const createKeyValueString = (
     document: vscode.TextDocument,
     range: vscode.Range,
     selectedText: string
-) {
-    await createKeyValueBase(document, range, selectedText, false);
-}
+) => nlsService.createKeyValue(document, range, selectedText, false);
 
-export async function createKeyValueTypedef(
+export const createKeyValueTypedef = (
     document: vscode.TextDocument,
     range: vscode.Range,
     selectedText: string
-) {
-    await createKeyValueBase(document, range, selectedText, true);
-}
-
-// ====================== ОБЩАЯ ЛОГИКА ======================
-async function createKeyValueBase(
-    document: vscode.TextDocument,
-    range: vscode.Range,
-    selectedText: string,
-    useTypedef: boolean
-) {
-    try {
-        const key = await vscode.window.showInputBox({
-            prompt: useTypedef
-                ? 'Enter NLS key (e.g. "lorem.ipsum.dolor")'
-                : 'Enter NLS key',
-            placeHolder: 'section.title',
-            validateInput: (v) => !v?.trim() ? 'Key cannot be empty' : null
-        });
-        if (!key) return;
-
-        const rootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        if (!rootPath) throw new Error('No workspace folder found');
-
-        // 1. Обновляем package.nls.json
-        const nlsFiles = await findNlsFiles(rootPath);
-        if (nlsFiles.length === 0) {
-            const defaultPath = path.join(rootPath, 'package.nls.json');
-            await fs.writeFile(defaultPath, JSON.stringify({}, null, 2), 'utf-8');
-            nlsFiles.push(defaultPath);
-        }
-        for (const file of nlsFiles) {
-            await addKeyToNlsFile(file, key, selectedText);
-        }
-
-
-        const { pattern, args } = extractTemplate(selectedText);
-        // 3. Готовим замену текста
-        const replacementText = replacer.buildReplacement(useTypedef, key, args);
-
-        const editor = vscode.window.activeTextEditor;
-        if (editor && editor.document === document) {
-            await editor.edit(editBuilder => {
-                editBuilder.replace(range, replacementText);
-            }, { undoStopBefore: true, undoStopAfter: true });
-        } else {
-            vscode.window.showWarningMessage('Editor focus changed. Please replace manually.');
-            return;
-        }
-
-        if (useTypedef) {
-            // Добавляем require, если нужно
-            // 2. Пересобираем nls.js из package.nls.json
-            await rebuildNlsJs(rootPath);
-            await ensureNlsRequire(document, rootPath);
-        }
-
-        vscode.window.showInformationMessage(`NLS key "${key}" added ${useTypedef ? '(typedef)' : '(string)'}`);
-    } catch (err: any) {
-        vscode.window.showErrorMessage(`Error: ${err.message}`);
-    }
-}
-
-function extractTemplate(template: string): { pattern: string; args: string[] } {
-    const regex = /\${([^}]+)}/g;
-    const args: string[] = [];
-    let index = 0;
-    const pattern = template.replace(regex, (_, expr) => {
-        args.push(expr.trim());
-        return `{${index++}}`;
-    });
-    return { pattern, args };
-}
-
-/**
- * Полностью пересоздаёт файл nls.js на основе всех ключей из package.nls.json
- */
-async function rebuildNlsJs(rootPath: string): Promise<void> {
-const packageNlsPath = path.join(rootPath, 'package.nls.json');
-    let allKeys: Record<string, string> = {};
-    try {
-        const content = await fs.readFile(packageNlsPath, 'utf-8');
-        allKeys = JSON.parse(content);
-    } catch {
-        // файла нет — создадим пустой
-        await fs.writeFile(packageNlsPath, JSON.stringify({}, null, 2), 'utf-8');
-    }
-
-    const nlsObject: any = {};
-    for (const key of Object.keys(allKeys)) {
-        // В качестве значения используем сам ключ
-        const parts = key.split('.');
-        setNestedValue(nlsObject, parts, key);
-    }
-
-    const jsContent = `// Auto-generated by NLS Refactor. Do not edit manually.
-const nls = ${JSON.stringify(nlsObject, null, 2)};
-
-module.exports = { nls };
-`;
-    await fs.writeFile(path.join(rootPath, 'nls.js'), jsContent, 'utf-8');
-}
-
-// Вспомогательная функция для установки вложенного значения
-function setNestedValue(obj: any, parts: string[], value: string) {
-    let current = obj;
-    for (let i = 0; i < parts.length - 1; i++) {
-        const part = parts[i];
-        if (!current[part] || typeof current[part] !== 'object') {
-            current[part] = {};
-        }
-        current = current[part];
-    }
-    current[parts[parts.length - 1]] = value;
-}
-
-
-async function ensureNlsRequire(document: vscode.TextDocument, rootPath: string): Promise<void> {
-    const text = document.getText();
-    // Проверяем, есть ли уже require или import для nls
-    if (/const\s*\{\s*nls\s*\}\s*=\s*require\(/.test(text)) {
-        return;
-    }
-
-    const editor = vscode.window.activeTextEditor;
-    if (!editor || editor.document !== document) return;
-
-    // Вычисляем относительный путь от текущего файла до корня проекта
-    const currentDir = path.dirname(document.uri.fsPath);
-    let relativePath = path.relative(currentDir, path.join(rootPath, 'nls.js'));
-    relativePath = relativePath.replace(/\\/g, '/');
-    if (!relativePath.startsWith('.')) {
-        relativePath = './' + relativePath;
-    }
-
-    const requireStatement = `const { nls } = require('${relativePath}');\n`;
-    let insertPosition = new vscode.Position(0, 0);
-
-    // Пропускаем shebang, если есть
-    const firstLine = text.split('\n')[0];
-    if (firstLine.startsWith('#!')) {
-        insertPosition = new vscode.Position(1, 0);
-    }
-
-    await editor.edit(editBuilder => {
-        editBuilder.insert(insertPosition, requireStatement);
-    });
-}
-
-async function findNlsFiles(rootPath: string): Promise<string[]> {
-    const entries = await fs.readdir(rootPath, { withFileTypes: true });
-    const nlsFiles: string[] = [];
-    for (const entry of entries) {
-        if (entry.isFile() && entry.name.startsWith('package.nls') && entry.name.endsWith('.json')) {
-            nlsFiles.push(path.join(rootPath, entry.name));
-        }
-    }
-    return nlsFiles;
-}
-
-async function addKeyToNlsFile(filePath: string, key: string, value: string) {
-    let content: string;
-    try {
-        content = await fs.readFile(filePath, 'utf-8');
-    } catch {
-        content = '{}';
-    }
-    let json: Record<string, string>;
-    try {
-        json = JSON.parse(content);
-    } catch {
-        json = {};
-    }
-    json[key] = value; // никакой очистки – JSON.stringify справится
-    await fs.writeFile(filePath, JSON.stringify(json, null, 2), 'utf-8');
-}
+) => nlsService.createKeyValue(document, range, selectedText, true);
