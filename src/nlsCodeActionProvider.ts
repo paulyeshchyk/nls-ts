@@ -2,6 +2,57 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 
+export interface INlsReplacer {
+    buildReplacement(useTypedef: boolean, key: string, args: string[]): string;
+}
+
+/**
+ * Реплейсер на основе vscode.l10n.t (современный API)
+ */
+export class VscodeL10nReplacer implements INlsReplacer {
+    buildReplacement(useTypedef: boolean, key: string, args: string[]): string {
+        if (useTypedef) {
+            if (args.length === 0) {
+                return `vscode.l10n.t(nls.${key})`;
+            } else {
+                return `vscode.l10n.t(nls.${key}, ${args.join(', ')})`;
+            }
+        } else {
+            if (args.length === 0) {
+                return `vscode.l10n.t('${key}')`;
+            } else {
+                return `vscode.l10n.t('${key}', ${args.join(', ')})`;
+            }
+        }
+    }
+}
+
+/**
+ * Реплейсер на основе устаревшего vscode-nls (localize)
+ */
+export class VscodeNlsReplacer implements INlsReplacer {
+    buildReplacement(useTypedef: boolean, key: string, args: string[]): string {
+        // В vscode-nls localize всегда требует fallback строку (второй аргумент)
+        // и аргументы для подстановки.
+        if (useTypedef) {
+            // В typedef-режиме предполагаем, что nls.${key} содержит строку-ключ.
+            // Но localize ожидает первым аргументом ключ, вторым – fallback.
+            // fallback можно сделать пустым или динамическим.
+            if (args.length === 0) {
+                return `localize(nls.${key}, '')`;
+            } else {
+                return `localize(nls.${key}, '', ${args.join(', ')})`;
+            }
+        } else {
+            if (args.length === 0) {
+                return `localize('${key}', '')`;
+            } else {
+                return `localize('${key}', '', ${args.join(', ')})`;
+            }
+        }
+    }
+}
+
 export class NlsCodeActionProvider implements vscode.CodeActionProvider {
 
     public static readonly providedCodeActionKinds = [vscode.CodeActionKind.Refactor];
@@ -40,6 +91,9 @@ export class NlsCodeActionProvider implements vscode.CodeActionProvider {
 }
 
 // ====================== ОСНОВНЫЕ ФУНКЦИИ ======================
+
+const replacer: INlsReplacer = new VscodeNlsReplacer();
+
 
 export async function createKeyValueString(
     document: vscode.TextDocument,
@@ -91,20 +145,7 @@ async function createKeyValueBase(
 
         const { pattern, args } = extractTemplate(selectedText);
         // 3. Готовим замену текста
-        let replacementText: string;
-        if (useTypedef) {
-            if (args.length === 0) {
-                replacementText = `vscode.l10n.t(nls.${key})`;
-            } else {
-                replacementText = `vscode.l10n.t(nls.${key}, ${args.join(', ')})`;
-            }
-        } else {
-            if (args.length === 0) {
-                replacementText = `vscode.l10n.t('${key}')`;
-            } else {
-                replacementText = `vscode.l10n.t('${key}', ${args.join(', ')})`;
-            }
-        }
+        const replacementText = replacer.buildReplacement(useTypedef, key, args);
 
         const editor = vscode.window.activeTextEditor;
         if (editor && editor.document === document) {
