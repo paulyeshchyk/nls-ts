@@ -1,28 +1,29 @@
+export const NLS_LOADER_TEMPLATE = `// Auto-generated runtime helper for NLS localization
 const fs = require('fs');
 const path = require('path');
 const vscode = require('vscode');
 
+/** * Кэш текущих переводов (плоский словарь)
+ * @type {Record<string, string>} 
+ */
 let currentTranslations = {};
 
 /**
- * Инициализация локализации. Вызывается один раз в методе activate() вашего расширения.
+ * Инициализация локализации. Вызывается один раз в методе activate().
  * @param {vscode.ExtensionContext} context 
  */
 function initNls(context) {
-    // Получаем текущий язык интерфейса VS Code (например, 'ru', 'en')
     const locale = vscode.env.language; 
     const rootPath = context.extensionPath;
+    let nlsPath = path.join(rootPath, \`package.nls.\${locale}.json\`);
     
-    // Пытаемся загрузить файл для текущего языка, иначе берем дефолтный
-    let nlsPath = path.join(rootPath, `package.nls.${locale}.json`);
     if (!fs.existsSync(nlsPath)) {
         nlsPath = path.join(rootPath, 'package.nls.json');
     }
-
+    
     try {
         if (fs.existsSync(nlsPath)) {
-            const content = fs.readFileSync(nlsPath, 'utf8');
-            currentTranslations = JSON.parse(content);
+            currentTranslations = JSON.parse(fs.readFileSync(nlsPath, 'utf8'));
         }
     } catch (err) {
         console.error('Failed to load NLS file:', err);
@@ -50,3 +51,6 @@ function translate(key, ...args) {
 }
 
 module.exports = { initNls, translate };
+`;
+
+module.exports = {NLS_LOADER_TEMPLATE};
