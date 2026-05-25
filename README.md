@@ -8,8 +8,8 @@ This extension helps you quickly extract strings for NLS (Natural Language Suppo
 ## Features
 
 - **Two modes for string extraction:**
-- **(string)** - simple flat string key: `translate('key')`
-- **(typedef)** - strictly typed structure with property autocompletion: `translate(nls_ts.key.subkey)`
+  - **(string)** - simple flat string key: `translate('key')`
+  - **(typedef)** - strictly typed structure with property autocompletion: `translate(nls_ts.key.subkey)`
 - **Automated infrastructure deployment:** upon first run, the extension automatically deploys a lightweight `nls_loader.js` runtime helper to your project.
 - **Smart translation updates:** automatic creation and population of `package.nls.json` with new keys.
 - **Key-tree generation:** automatic assembly of `nls_ts.js` with a nested object structure based on dot notation.
@@ -32,9 +32,9 @@ On its first run, the extension will generate an `nls_loader.js` file in your wo
 const { initNls } = require('./nls_loader');
 
 function activate(context) {
-// Initialize localization before registering any commands
-initNls(context);
-// Rest of your activation code...
+  // Initialize localization before registering any commands
+  initNls(context);
+  // Rest of your activation code...
 }
 ```
 
@@ -62,9 +62,9 @@ Inside the auto-generated `nls_ts.js`:
 const { translate } = require('./nls_loader');
 
 const nls_ts = {
-greeting: {
-welcome: "greeting.welcome"
-}
+  greeting: {
+    welcome: "greeting.welcome"
+  }
 };
 
 module.exports = { nls_ts, translate };
