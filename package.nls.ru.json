@@ -1,0 +1,18 @@
+{
+  "nlsService.key.create.collision.message": "Невозможно добавить ключ \"{0}\" – он конфликтует с существующим ключом (коллизия префикса/суффикса).",
+  "nlsService.key.create.input.prompt.typedef": "Введите NLS-ключ (например, \"lorem.ipsum.dolor\")",
+  "nlsService.key.create.input.prompt.string": "Введите NLS-ключ",
+  "nlsService.key.create.input.prompt.title": "section.title",
+  "nlsService.key.create.firsttime.info.title": "Вы впервые запускаете NLS Refactor в этом проекте.\n Необходимо добавить служебные файлы (nls_loader.js и nls_ts.js) в вашу рабочую область. Продолжить?",
+  "nlsService.key.create.firsttime.info.yes": "Да",
+  "nlsService.key.create.firsttime.info.cancel": "Отмена",
+  "nlsService.key.create.editorfocuschanged.warning": "Фокус редактора изменился. Пожалуйста, выполните замену вручную.",
+  "nlsService.key.create.info.success": "NLS-ключ \"{0}\" добавлен {1}",
+  "nlsService.key.create.error.critical": "Ошибка: {0}",
+  "nlsService.key.create.warning.notinserted": "Не удалось добавить импорт nls. Пожалуйста, добавьте его вручную.",
+  "nls.command.string.title": "NLS: Создать ключ-значение (строка)",
+  "nls.command.typedef.title": "NLS: Создать ключ-значение (с типом)",
+  "nls.action.string.title": "NLS: Создать ключ-значение (строка)",
+  "nls.action.typedef.title": "NLS: Создать ключ-значение (с типом)",
+  "nlsService.key.create.error.workspacenotfound": "Папка рабочей области не найдена"
+}

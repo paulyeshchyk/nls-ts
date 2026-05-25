@@ -1,3 +1,18 @@
 {
-  "A.A.A": "`Key \"${key}\" added to ${nlsFiles.length} NLS file(s)`"
+  "nlsService.key.create.collision.message": "Cannot add key \"{0}\" – it conflicts with an existing key (prefix/suffix collision).",
+  "nlsService.key.create.input.prompt.typedef": "Enter NLS key (e.g. \"lorem.ipsum.dolor\")",
+  "nlsService.key.create.input.prompt.string": "Enter NLS key",
+  "nlsService.key.create.input.prompt.title": "section.title",
+  "nlsService.key.create.firsttime.info.title": "This is the first time you run NLS Refactor in this project.\nWe need to add setup files (nls_loader.js & nls_ts.js) to your workspace. Proceed?",
+  "nlsService.key.create.firsttime.info.yes": "Yes",
+  "nlsService.key.create.firsttime.info.cancel": "Cancel",
+  "nlsService.key.create.editorfocuschanged.warning": "Editor focus changed. Please replace manually.",
+  "nlsService.key.create.info.success": "NLS key \"{0}\" added {1}",
+  "nlsService.key.create.error.critical": "Error: {0}",
+  "nlsService.key.create.warning.notinserted": "Could not add nls import. Please add manually.",
+  "nls.action.string.title": "NLS: Create Key-Value (string)",
+  "nls.action.typedef.title": "NLS: Create Key-Value (typedef)",
+  "nls.command.string.title": "NLS: Create Key-Value (string)",
+  "nls.command.typedef.title": "NLS: Create Key-Value (typedef)",
+  "nlsService.key.create.error.workspacenotfound": "No workspace folder found"
 }
