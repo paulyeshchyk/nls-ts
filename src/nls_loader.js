@@ -1,3 +1,5 @@
+// nls_loader.js
+
 const fs = require('fs');
 const path = require('path');
 const vscode = require('vscode');

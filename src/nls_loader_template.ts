@@ -1,3 +1,4 @@
+// nls_loader_template.ts
 export const NLS_LOADER_TEMPLATE = `// Auto-generated runtime helper for NLS localization
 const fs = require('fs');
 const path = require('path');
@@ -43,6 +44,7 @@ function translate(key, ...args) {
   if (args.length > 0) {
     // Явно типизируем callback для replace
     template = template.replace(/\{(\d+)\}/g, (match, number) => {
+    template = template.replace(/\\\\{(\\\\d+)\\\\}/g, (match, number) => {
       const index = parseInt(number, 10);
       return typeof args[index] !== "undefined" ? String(args[index]) : match;
     });
@@ -53,4 +55,4 @@ function translate(key, ...args) {
 module.exports = { initNls, translate };
 `;
 
-module.exports = {NLS_LOADER_TEMPLATE};
+module.exports = { NLS_LOADER_TEMPLATE };

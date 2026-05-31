@@ -3,7 +3,7 @@
   "displayName": "NLS Typescript",
   "description": "Extract selected text into nls key-value files",
   "publisher": "paulyestchick",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "license": "MIT",
   "repository": {
     "url": "https://github.com/paulyeshchyk/nls-ts"
